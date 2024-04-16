@@ -7,6 +7,7 @@ from pygame.locals import *
 from PySide6 import QtWidgets
 from time import strftime
 from custom_bots import *
+import shutil
 
 class LoopController:
     
@@ -36,14 +37,14 @@ class LoopController:
                 Greedy2BotPlayer()
             ]
             pygame.event.set_allowed([QUIT, MOUSEBUTTONDOWN, MOUSEBUTTONUP])
-            self.filePath = False
-            self.replayRecord = []
+            # self.filePath = False
+            # self.replayRecord = []
             self.mainMenuLoop(window)
         elif self.loopNum == 1:
             self.loadPlayerLoop()
         elif self.loopNum == 2:
             self.winnerList, self.replayRecord = self.gameplayLoop(
-                window, self.playerList)
+                window, self.playerList, self.replayRecord)
         elif self.loopNum == 3:
             self.gameOverLoop(window, self.winnerList, self.replayRecord)
         elif self.loopNum == 4:
@@ -53,27 +54,56 @@ class LoopController:
         elif self.loopNum == 5:
             self.filePath = self.loadReplayLoop()
 
-    def gameplayLoop(self, window: pygame.Surface, playerss: list[Player]):
+    def gameplayLoop(self, window: pygame.Surface, playerss: list[Player], replayRecordCache):
+        # print(replayRecordCache)
+        returnStuff = [[],[]]
         playingPlayerIndex = 0
         humanPlayerNum = 0
+        move_list = []
         #returnStuff[0] is the winning player number,
         #or -1 if it's a draw
         #returnStuff[1] is replayRecord
         #if there are two players, len(returnStuff[0]) is 1
         #otherwise, it is 2, with the first winner at index 0
-        returnStuff = [[],[]]
         replayRecord = []
         #replayRecord[0] marks the number of players
-        players = copy.deepcopy(playerss)
-        while None in players: players.remove(None)
+        players = []
+        if len(replayRecordCache) != 0:
+            replayRecord = replayRecordCache
+            playerString = replayRecord[1]
+            for player in playerString.split():
+                if player != 'NoneType':
+                    players.append(self.playerTypes[player]())
+
+            
+
+            for i in range(2, len(replayRecord)):
+                move_list.append(replayRecord[i].split("to"))
+                for j in range(2):
+                    move_list[i-2][j] = eval(move_list[i-2][j])
+        else:
+            players = copy.deepcopy(playerss)
+            while None in players: players.remove(None)
+
+            #some other settings
+            replayRecord.append(str(len(players)))
+            typesOfPlayers = ''
+            for player in playerss:
+                typesOfPlayers += (type(player).__name__+ ' ')
+            replayRecord.append(typesOfPlayers)
+
         if len(players) > 3: players = players[:3]
         players[0].setPlayerNum(1)
         players[1].setPlayerNum(2)
         if len(players) == 3: players[2].setPlayerNum(3)
+
         #generate the Game
         g = Game(len(players))
-        #some other settings
-        replayRecord.append(str(len(players)))
+        for move in move_list:
+            g.movePiece(move[0], move[1])
+            if playingPlayerIndex >= len(players) - 1: playingPlayerIndex = 0
+            else: playingPlayerIndex += 1
+
         oneHuman = exactly_one_is_human(players)
         if oneHuman:
             for player in players:
@@ -98,10 +128,16 @@ class LoopController:
             if highlight:
                 pygame.draw.circle(window, (117,10,199), abs_coors(g.centerCoor, highlight[0], g.unitLength), g.circleRadius, g.lineWidth+2)
                 pygame.draw.circle(window, (117,10,199), abs_coors(g.centerCoor, highlight[1], g.unitLength), g.circleRadius, g.lineWidth+2)
-            backButton = TextButton('Back to Menu', width=int(HEIGHT*0.25), height=int(HEIGHT*0.0833), font_size=int(WIDTH*0.04))
+            backButton = TextButton('Pause', width=int(HEIGHT*0.25), height=int(HEIGHT*0.0833), font_size=int(WIDTH*0.04))
             mouse_pos = pygame.mouse.get_pos()
             mouse_left_click = ev.type == MOUSEBUTTONDOWN
             if backButton.isClicked(mouse_pos, mouse_left_click):
+                curTime = strftime("%Y%m%d-%H%M%S")
+                if not os.path.isdir("./cache"): os.mkdir("./cache")
+                with open(f"./cache/replay-{curTime}.txt", mode="w+") as f:
+                    for i in range(len(replayRecord)):
+                        if i < len(replayRecord) - 1: f.write(str(replayRecord[i])+'\n')
+                        else: f.write(str(replayRecord[i]))                
                 self.loopNum = 0
                 return ([], [])
             backButton.draw(window, mouse_pos)
@@ -109,6 +145,12 @@ class LoopController:
             if isinstance(playingPlayer, HumanPlayer):
                 start_coor, end_coor = playingPlayer.pickMove(g, window, humanPlayerNum, highlight)
                 if (not start_coor) and (not end_coor):
+                    curTime = strftime("%Y%m%d-%H%M%S")
+                    if not os.path.isdir("./cache"): os.mkdir("./cache")
+                    with open(f"./cache/replay-{curTime}.txt", mode="w+") as f:
+                        for i in range(len(replayRecord)):
+                            if i < len(replayRecord) - 1: f.write(str(replayRecord[i])+'\n')
+                            else: f.write(str(replayRecord[i]))   
                     self.loopNum = 0
                     return ([], [])
             else:
@@ -150,6 +192,7 @@ class LoopController:
                 text = f.read()
                 move_list = text.split('\n')
                 playerCount = move_list.pop(0)
+                playerString = move_list.pop(0)
                 if not eval(playerCount) in (2, 3):
                     self.showNotValidReplay()
                     isValidReplay = False
@@ -260,6 +303,9 @@ class LoopController:
         #buttons
         menuButton = TextButton("Back to menu", centerx=int(WIDTH*0.25), centery=int(HEIGHT*2/3))
         exportReplayButton = TextButton("Export replay", centerx=int(WIDTH*0.75), centery=int(HEIGHT*2/3))
+        if os.path.exists("./cache"):
+            shutil.rmtree("./cache")
+        
         while True:
             for event in pygame.event.get():
                 if event.type == QUIT:
@@ -269,6 +315,7 @@ class LoopController:
             mouse_left_click = pygame.mouse.get_pressed()[0]
             if menuButton.isClicked(mouse_pos, mouse_left_click):
                 self.loopNum = 0
+                self.replayRecord = []
                 break
             if exportReplayButton.isClicked(mouse_pos, mouse_left_click):
                 curTime = strftime("%Y%m%d-%H%M%S")
@@ -388,6 +435,8 @@ class LoopController:
     #helpers for loadPlayerLoop and replayLoop
     def startGame(self):
         # print(self.playerList)
+        if os.path.exists("./cache"):
+            shutil.rmtree("./cache")
         self.loopNum = 2 #go to gameplay
         QtWidgets.QApplication.closeAllWindows()
     def backToMenu(self):
@@ -405,12 +454,14 @@ class LoopController:
         titleText = pygame.font.Font(size=int(WIDTH*0.08)).render(
             "Chinese Checkers", True, BLACK)
         titleTextRect = titleText.get_rect()
-        titleTextRect.center = (WIDTH*0.5, HEIGHT*0.25)
+        titleTextRect.center = (WIDTH*0.5, HEIGHT*0.1)
         window.blit(titleText, titleTextRect)
+        continueButton = TextButton(
+            "Continue", centerx=int(WIDTH*0.5), centery=int(HEIGHT*0.375), width=WIDTH*0.25, height=HEIGHT*0.125, font_size=32)
         playButton = TextButton(
-            "Play", centerx=int(WIDTH*0.5), centery=int(HEIGHT*0.375), width=WIDTH*0.25, height=HEIGHT*0.125, font_size=32)
+            "New Game", centerx=int(WIDTH*0.5), centery=int(HEIGHT*0.525), width=WIDTH*0.25, height=HEIGHT*0.125, font_size=32)
         loadReplayButton = TextButton(
-            "Load replay", centerx=int(WIDTH*0.5), centery=int(HEIGHT*0.625), width=WIDTH*0.25, height=HEIGHT*0.125, font_size=32)
+            "Load replay", centerx=int(WIDTH*0.5), centery=int(HEIGHT*0.675), width=WIDTH*0.25, height=HEIGHT*0.125, font_size=32)
         while True:
             ev = pygame.event.wait()
             if ev.type == QUIT:
@@ -426,9 +477,19 @@ class LoopController:
                 # print('load-replay')
                 self.loopNum = 5
                 break
+            if continueButton.isClicked(mouse_pos, mouse_left_click):
+                self.loopNum = 2
+                self.filePath = os.listdir("./cache")[0]
+                with open("./cache/" + self.filePath) as f:
+                    text = f.read()
+                    self.replayRecord = text.split('\n')
+                    shutil.rmtree("./cache")
+                break
 
             playButton.draw(window, mouse_pos)
             loadReplayButton.draw(window, mouse_pos)
+            if os.path.exists("./cache"):
+                continueButton.draw(window, mouse_pos)
             pygame.display.update()
 
 def exactly_one_is_human(players: list[Player]):
